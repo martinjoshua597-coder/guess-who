@@ -1,0 +1,112 @@
+.game-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--bg-tertiary);
+    padding: 16px 24px;
+    min-height: 0;
+}
+
+.game-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.game-tabs {
+    display: flex;
+    gap: 8px;
+    background: var(--bg-secondary);
+    padding: 4px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+}
+
+.tab-btn {
+    padding: 8px 16px;
+    border-radius: 16px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    transition: all 0.2s;
+}
+
+.tab-btn:hover {
+    color: var(--text-primary);
+}
+
+.tab-btn.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.game-controls {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.turn-indicator {
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.highlight-green {
+    color: var(--accent-green);
+    font-weight: 600;
+}
+
+.live-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 6px 14px;
+    border-radius: 14px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.live-btn::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background-color: var(--accent-red);
+    border-radius: 50%;
+    margin-right: 8px;
+    box-shadow: 0 0 8px var(--accent-red);
+}
+
+.game-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+}
+/* New Match Button */
+.new-match-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(176, 38, 255, 0.12);
+    color: var(--accent-purple);
+    border: 1px solid rgba(176, 38, 255, 0.3);
+    padding: 6px 14px;
+    border-radius: 14px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    transition: all 0.2s;
+}
+
+.new-match-btn:hover {
+    background: var(--accent-purple);
+    color: white;
+    box-shadow: 0 4px 14px rgba(176, 38, 255, 0.4);
+    transform: translateY(-1px);
+}

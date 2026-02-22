@@ -1,0 +1,197 @@
+.video-section {
+    flex: 1;
+    display: flex;
+    padding: 16px 24px;
+    gap: 24px;
+    background-color: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
+    min-height: 300px;
+}
+
+.video-container {
+    flex: 1;
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    min-height: 300px;
+}
+
+.local-video {
+    border-color: rgba(0, 255, 136, 0.2);
+    box-shadow: 0 0 30px rgba(0, 255, 136, 0.05);
+}
+
+.remote-video {
+    border-color: rgba(176, 38, 255, 0.2);
+    box-shadow: 0 0 30px rgba(176, 38, 255, 0.05);
+}
+
+.video-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-size: cover;
+    background-position: center;
+}
+
+.user-a {
+    background-image: linear-gradient(to bottom, rgba(10, 10, 12, 0.3), var(--bg-secondary)), url('https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?q=80&w=600&auto=format&fit=crop');
+}
+
+.user-b {
+    background-image: linear-gradient(to bottom, rgba(10, 10, 12, 0.3), var(--bg-secondary)), url('https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=600&auto=format&fit=crop');
+}
+
+.neon-mask {
+    width: 100px;
+    height: 130px;
+    border-radius: 50px 50px 30px 30px;
+    border: 3px solid;
+    opacity: 0.9;
+    filter: drop-shadow(0 0 12px currentColor);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+}
+
+.eyes {
+    display: flex;
+    gap: 30px;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 24px;
+}
+
+.mouth {
+    width: 60px;
+    height: 20px;
+    border: 2px solid;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    letter-spacing: 2px;
+    font-size: 10px;
+    overflow: hidden;
+}
+
+.mask-green {
+    color: var(--accent-green);
+    border-color: var(--accent-green);
+}
+
+.mask-purple {
+    color: var(--accent-purple);
+    border-color: var(--accent-purple);
+}
+
+.video-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    background: linear-gradient(to top, rgba(10, 10, 12, 0.95), transparent);
+}
+
+.player-label {
+    font-weight: 500;
+    font-size: 1.1rem;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+    font-family: inherit;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.action-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(8px);
+    transition: all 0.2s;
+    color: var(--text-primary);
+}
+
+.action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.action-btn.danger:hover {
+    background: rgba(255, 51, 102, 0.2);
+    color: var(--accent-red);
+    border-color: var(--accent-red);
+}
+
+/* Live video feed */
+.live-video-feed {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.camera-error {
+    position: absolute;
+    bottom: 8px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--accent-red);
+    padding: 0 8px;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 6px;
+}
+
+.action-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.action-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+}
+
+.action-btn.danger {
+    background: rgba(255, 51, 102, 0.15);
+    border-color: rgba(255, 51, 102, 0.3);
+    color: var(--accent-red);
+}
+
+.action-btn.danger:hover {
+    background: var(--accent-red);
+    color: white;
+}
