@@ -96,10 +96,15 @@ const VideoSection = ({ currentUserName, opponentName, roomId }) => {
             });
 
             peer.on('stream', (remoteStream) => {
-                if (remoteVideoRef.current) {
-                    remoteVideoRef.current.srcObject = remoteStream;
-                }
                 setRemoteReady(true);
+                // Use a short timeout or rely on a separate useEffect to bind the stream
+                // since the <video> element might not be rendered yet when remoteReady flips to true.
+                setTimeout(() => {
+                    if (remoteVideoRef.current) {
+                        remoteVideoRef.current.srcObject = remoteStream;
+                        remoteVideoRef.current.play().catch(err => console.error("Error playing remote video:", err));
+                    }
+                }, 100);
             });
 
             peer.on('error', (err) => console.error('Peer error:', err));
