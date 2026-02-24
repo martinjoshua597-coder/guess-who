@@ -1,41 +1,94 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './HigherLowerGame.css';
-import { ArrowUpCircle, ArrowDownCircle, Lock, Eye, RotateCcw, CheckCircle, Delete } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, Lock, Eye, RotateCcw, CheckCircle, Delete, Loader2 } from 'lucide-react';
+import { useGame } from '../context/GameContext';
 
 const HigherLowerGame = () => {
     const min = 0;
     const max = 100;
+    const game = useGame(); // Connect to multiplayer state
 
-    // States
-    const [secretNumber, setSecretNumber] = useState(null);
+    // Local states
     const [inputSecret, setInputSecret] = useState('');
-
-    // Keypad game states
     const [keypadInput, setKeypadInput] = useState('');
-    const [guessHistory, setGuessHistory] = useState([]); // { guess: Number, result: 'HIGHER' | 'LOWER' | 'CORRECT' }
 
-    const [isRevealed, setIsRevealed] = useState(false);
+    // Pull from context if playing multiplayer, fallback to local state for solo dev
+    const [localSecret, setLocalSecret] = useState(null);
+    const [localOpponentSecret, setLocalOpponentSecret] = useState(null);
+    const [localGuessHistory, setLocalGuessHistory] = useState([]);
+    const [localIsRevealed, setLocalIsRevealed] = useState(false);
 
-    const isChoosingSecret = secretNumber === null;
+    const hlSecret = game?.hlSecret !== undefined ? game.hlSecret : localSecret;
+    const opponentHlSecret = game?.opponentHlSecret !== undefined ? game.opponentHlSecret : localOpponentSecret;
+    const guessHistory = game?.guessHistory || localGuessHistory;
+    const isRevealed = game ? game.revealedFaceId === 'higher_lower' : localIsRevealed;
+
+    const setHlSecretFn = game?.setHlSecret || setLocalSecret;
+    const setGuessHistoryFn = (updater) => {
+        const newHistory = typeof updater === 'function' ? updater(guessHistory) : updater;
+        if (game) {
+            game.setGuessHistory(newHistory);
+            game.broadcastGuessUpdate(newHistory);
+        } else {
+            setLocalGuessHistory(newHistory);
+        }
+    };
+
+    // Determine phase
+    const isChoosingSecret = hlSecret === null;
+    const isWaitingForOpponent = hlSecret !== null && opponentHlSecret === null && game?.opponentReady;
 
     const handleLockSecret = (e) => {
         e.preventDefault();
         const num = parseInt(inputSecret, 10);
         if (!isNaN(num) && num >= min && num <= max) {
-            setSecretNumber(num);
+            setHlSecretFn(num);
+            game?.broadcastHlSecret(num); // Tell opponent our secret
+
+            // If playing solo (no game context or opponent not ready), act as both
+            if (!game?.opponentReady) {
+                if (game) {
+                    game.setOpponentHlSecret(num); // Mock opponent for solo dev
+                } else {
+                    setLocalOpponentSecret(num);
+                }
+            }
         }
     };
 
     const handleReveal = () => {
-        setIsRevealed(true);
+        if (game) {
+            game.setRevealedFaceId('higher_lower');
+            game.broadcastReveal('higher_lower');
+        } else {
+            setLocalIsRevealed(true);
+        }
     };
 
+    // Sync incoming reveal from opponent
+    useEffect(() => {
+        if (game?.revealedFaceId === 'higher_lower' && !isRevealed) {
+            // Handled generically by checking game.revealedFaceId above
+        }
+    }, [game?.revealedFaceId]);
+
+
     const handleReset = () => {
-        setSecretNumber(null);
+        // Only reset local states. A full game reset might need coordination,
+        // but for now we'll allow players to reset their own view.
+        if (game) {
+            game.setHlSecret(null);
+            game.setOpponentHlSecret(null);
+            game.setGuessHistory([]);
+            game.setRevealedFaceId(null);
+        } else {
+            setLocalSecret(null);
+            setLocalOpponentSecret(null);
+            setLocalGuessHistory([]);
+            setLocalIsRevealed(false);
+        }
         setInputSecret('');
         setKeypadInput('');
-        setGuessHistory([]);
-        setIsRevealed(false);
     };
 
     const handleKeypadPress = (val) => {
@@ -49,16 +102,19 @@ const HigherLowerGame = () => {
             let result = '';
             let triggerReveal = false;
 
-            if (num < secretNumber) {
+            // Notice we guess against opponentHlSecret, NOT hlSecret
+            const targetNumber = opponentHlSecret;
+
+            if (num < targetNumber) {
                 result = 'HIGHER';
-            } else if (num > secretNumber) {
+            } else if (num > targetNumber) {
                 result = 'LOWER';
             } else {
                 result = 'CORRECT';
                 triggerReveal = true;
             }
 
-            setGuessHistory(prev => [...prev, { guess: num, result }]);
+            setGuessHistoryFn(prev => [...prev, { guess: num, result }]);
             setKeypadInput('');
 
             if (triggerReveal) {
@@ -102,6 +158,12 @@ const HigherLowerGame = () => {
                             Lock Number
                         </button>
                     </form>
+                </div>
+            ) : isWaitingForOpponent ? (
+                <div className="choose-secret-step waiting-step">
+                    <div className="pulse-ring"></div>
+                    <h2 className="hl-title">Waiting for Opponent</h2>
+                    <p className="hl-subtitle">You locked in <strong>{hlSecret}</strong>. Waiting for them to choose...</p>
                 </div>
             ) : (
                 <div className="game-step">

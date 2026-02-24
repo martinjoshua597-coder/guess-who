@@ -106,13 +106,33 @@ const MysteryFaceBoard = () => {
 
     const handleReveal = () => {
         if (!defendingFaceId) return;
-        setIsRevealed(true);
+        if (game) {
+            game.setRevealedFaceId(defendingFaceId);
+            game.broadcastReveal(defendingFaceId);
+        } else {
+            setIsRevealed(true);
+        }
     };
+
+    // Listen for opponent's reveal (or our own, propagated back via context)
+    useEffect(() => {
+        if (game?.revealedFaceId && game.revealedFaceId !== 'higher_lower') {
+            setIsRevealed(true);
+            // If the opponent revealed, their face id comes through.
+            // If we don't know who revealed it, we just show the game over screen.
+        }
+    }, [game?.revealedFaceId]);
 
     const handleReset = () => {
         setDefendingFaceId(null);
         setEliminated(new Set());
-        setIsRevealed(false);
+        if (game) {
+            game.setRevealedFaceId(null);
+            // Only reset local faces to default if we want a full game restart,
+            // but for now let's just reset the state of the current board.
+        } else {
+            setIsRevealed(false);
+        }
     };
 
     const defendingFace = faces.find(f => f.id === defendingFaceId);

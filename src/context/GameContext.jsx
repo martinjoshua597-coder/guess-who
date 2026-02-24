@@ -14,6 +14,10 @@ export const GameProvider = ({ children, roomId, currentUserId }) => {
     const [faces, setFaces] = useState(null);         // null = not yet synced
     const [eliminated, setEliminated] = useState(new Set());
     const [guessHistory, setGuessHistory] = useState([]);
+    const [hlSecret, setHlSecret] = useState(null); // Local player's locked secret
+    const [opponentHlSecret, setOpponentHlSecret] = useState(null); // Opponent's locked secret
+    const [revealedFaceId, setRevealedFaceId] = useState(null); // Which face identity was revealed
+
     const [opponentReady, setOpponentReady] = useState(false);
     const channelRef = useRef(null);
     const isHostRef = useRef(false);
@@ -41,6 +45,16 @@ export const GameProvider = ({ children, roomId, currentUserId }) => {
         // Listen for guess history syncs (Higher/Lower)
         channel.on('broadcast', { event: 'guess_update' }, ({ payload }) => {
             setGuessHistory(payload.guessHistory);
+        });
+
+        // Listen for Higher/Lower secret number lock
+        channel.on('broadcast', { event: 'hl_secret_update' }, ({ payload }) => {
+            setOpponentHlSecret(payload.secret);
+        });
+
+        // Listen for Mystery Face revealed identity
+        channel.on('broadcast', { event: 'reveal_update' }, ({ payload }) => {
+            setRevealedFaceId(payload.faceId);
         });
 
         // Listen for presence (opponent online status)
@@ -91,15 +105,38 @@ export const GameProvider = ({ children, roomId, currentUserId }) => {
         });
     }, []);
 
+    // Broadcast Higher/Lower local secret lock to opponent
+    const broadcastHlSecret = useCallback((secret) => {
+        channelRef.current?.send({
+            type: 'broadcast',
+            event: 'hl_secret_update',
+            payload: { secret },
+        });
+    }, []);
+
+    // Broadcast Mystery Face reveal
+    const broadcastReveal = useCallback((faceId) => {
+        channelRef.current?.send({
+            type: 'broadcast',
+            event: 'reveal_update',
+            payload: { faceId },
+        });
+    }, []);
+
     return (
         <GameContext.Provider value={{
             faces, setFaces,
             eliminated, setEliminated,
             guessHistory, setGuessHistory,
+            hlSecret, setHlSecret,
+            opponentHlSecret, setOpponentHlSecret,
+            revealedFaceId, setRevealedFaceId,
             opponentReady,
             broadcastFacesUpdate,
             broadcastEliminationUpdate,
             broadcastGuessUpdate,
+            broadcastHlSecret,
+            broadcastReveal,
         }}>
             {children}
         </GameContext.Provider>
