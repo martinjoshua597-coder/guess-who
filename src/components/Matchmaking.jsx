@@ -25,10 +25,10 @@ const Matchmaking = ({ onMatchFound, currentUserId }) => {
         if (isSupabaseConfigured && currentUserId) {
             startRealMatchmaking();
         } else {
-            // Fallback: simulate match after 2.5s
+            // Fallback: simulate match after 2.5s using a shared dev room ID
+            // so testing instances can connect.
             const fallback = setTimeout(() => {
-                const fakeRoomId = `room-${Date.now()}`;
-                onMatchFound(fakeRoomId);
+                onMatchFound('room-dev-fallback');
             }, 2500);
             return () => { clearInterval(timerRef.current); clearTimeout(fallback); };
         }
@@ -49,8 +49,8 @@ const Matchmaking = ({ onMatchFound, currentUserId }) => {
 
         if (error) {
             console.error('Queue insert error:', error.message);
-            // Fall back to simulated match
-            setTimeout(() => onMatchFound(`room-${Date.now()}`), 2500);
+            // Fall back to simulated shared match if table doesn't exist
+            setTimeout(() => onMatchFound('room-dev-fallback'), 2500);
             return;
         }
 
