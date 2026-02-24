@@ -196,7 +196,7 @@ const HigherLowerGame = () => {
                         <div className="active-header">
                             <div className="secret-display">
                                 <span className="secret-label">Your Secret Number:</span>
-                                <span className="secret-value">{secretNumber}</span>
+                                <span className="secret-value">{hlSecret}</span>
                             </div>
                             <div className="header-actions">
                                 {!isRevealed && (
@@ -255,7 +255,7 @@ const HigherLowerGame = () => {
                 <div className="reveal-overlay-hl">
                     <div className="reveal-content-hl">
                         <h3>THE SECRET NUMBER WAS</h3>
-                        <h1 className="reveal-text-hl">{secretNumber}</h1>
+                        <h1 className="reveal-text-hl">{opponentHlSecret}</h1>
                         <button className="reset-overlay-btn" onClick={handleReset}>Play Again</button>
                     </div>
                 </div>
