@@ -40,36 +40,71 @@ const Matchmaking = ({ onMatchFound, currentUserId }) => {
     }, []);
 
     const startRealMatchmaking = async () => {
-        // Insert into queue
-        const { data, error } = await supabase
+        // 1. Try to find someone already waiting
+        const { data: waitingPlayers, error: fetchError } = await supabase
             .from('matchmaking_queue')
-            .insert({ user_id: currentUserId, status: 'waiting' })
-            .select()
-            .single();
+            .select('*')
+            .eq('status', 'waiting')
+            .neq('user_id', currentUserId)
+            .limit(1);
 
-        if (error) {
-            console.error('Queue insert error:', error.message);
+        if (fetchError) {
+            console.error('Queue fetch error:', fetchError.message);
             // Fall back to simulated shared match if table doesn't exist
             setTimeout(() => onMatchFound('room-dev-fallback'), 2500);
             return;
         }
 
-        queueRowIdRef.current = data.id;
+        if (waitingPlayers && waitingPlayers.length > 0) {
+            // Found a match! Let's claim them.
+            const match = waitingPlayers[0];
+            const roomId = [currentUserId, match.user_id].sort().join('-');
 
-        // Subscribe to our own queue row — server/trigger will fill in room_id when matched
+            const { error: updateError } = await supabase
+                .from('matchmaking_queue')
+                .update({ status: 'matched', room_id: roomId })
+                .eq('id', match.id);
+
+            // If we successfully updated their row, we are matched
+            if (!updateError) {
+                onMatchFound(roomId);
+                return;
+            }
+        }
+
+        // 2. No match found, insert ourselves into the queue
+        const { data: myRow, error: insertError } = await supabase
+            .from('matchmaking_queue')
+            .insert({ user_id: currentUserId, status: 'waiting' })
+            .select()
+            .single();
+
+        if (insertError) {
+            console.error('Queue insert error:', insertError.message);
+            setTimeout(() => onMatchFound('room-dev-fallback'), 2500);
+            return;
+        }
+
+        queueRowIdRef.current = myRow.id;
+
+        // 3. Subscribe to our own row to wait for someone to claim us
         const channel = supabase
-            .channel(`queue-${data.id}`)
+            .channel(`queue-${myRow.id}`)
             .on('postgres_changes', {
                 event: 'UPDATE',
                 schema: 'public',
                 table: 'matchmaking_queue',
-                filter: `id=eq.${data.id}`,
+                filter: `id=eq.${myRow.id}`, // only listen to our row
             }, ({ new: row }) => {
                 if (row.room_id) {
                     onMatchFound(row.room_id);
                 }
             })
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log('Successfully subscribed to queue updates for id:', myRow.id);
+                }
+            });
 
         channelRef.current = channel;
     };
