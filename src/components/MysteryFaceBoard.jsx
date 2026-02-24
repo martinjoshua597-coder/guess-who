@@ -137,6 +137,13 @@ const MysteryFaceBoard = () => {
 
     const defendingFace = faces.find(f => f.id === defendingFaceId);
 
+    // Determine which face to show on the game over screen
+    const revealedFaceIdToDisplay = game?.revealedFaceId && game.revealedFaceId !== 'higher_lower'
+        ? game.revealedFaceId
+        : defendingFaceId;
+    const revealedFaceToDisplay = faces.find(f => f.id === revealedFaceIdToDisplay);
+    const isRevealLocal = revealedFaceIdToDisplay === defendingFaceId;
+
     return (
         <div className="mystery-board-container">
             <div className="board-header">
@@ -199,10 +206,10 @@ const MysteryFaceBoard = () => {
                             <div className="game-complete-content">
                                 <Trophy size={48} className="trophy-icon" />
                                 <h2 className="game-complete-title">GAME COMPLETE</h2>
-                                {defendingFace && (
+                                {revealedFaceToDisplay && (
                                     <div className="revealed-face-preview">
-                                        <img src={defendingFace.image} alt="Revealed" />
-                                        <span>Your card was revealed!</span>
+                                        <img src={revealedFaceToDisplay.image} alt="Revealed" />
+                                        <span>{isRevealLocal ? "Your card was revealed!" : "Opponent's card was revealed!"}</span>
                                     </div>
                                 )}
                                 <button className="play-again-btn" onClick={handleReset}>
