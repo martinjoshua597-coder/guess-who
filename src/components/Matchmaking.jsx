@@ -40,12 +40,18 @@ const Matchmaking = ({ onMatchFound, currentUserId }) => {
     }, []);
 
     const startRealMatchmaking = async () => {
+        // 0. Clean up any stale rows from this exact user
+        await supabase.from('matchmaking_queue').delete().eq('user_id', currentUserId);
+
         // 1. Try to find someone already waiting
+        // We order by created_at descending so we pick the FRESHEST player,
+        // reducing the chance of grabbing a "ghost" row from a closed tab.
         const { data: waitingPlayers, error: fetchError } = await supabase
             .from('matchmaking_queue')
             .select('*')
             .eq('status', 'waiting')
             .neq('user_id', currentUserId)
+            .order('created_at', { ascending: false })
             .limit(1);
 
         if (fetchError) {
