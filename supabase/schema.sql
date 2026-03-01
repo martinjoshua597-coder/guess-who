@@ -23,6 +23,10 @@ alter table public.matchmaking_queue enable row level security;
 create policy "Own queue row" on public.matchmaking_queue
   for all using (auth.uid() = user_id);
 
+-- Allow all users to read waiting rows for matchmaking
+create policy "Read waiting rows" on public.matchmaking_queue
+  for select using (status = 'waiting');
+
 -- Enable Realtime on this table (so the client gets notified when room_id is filled)
 alter publication supabase_realtime add table public.matchmaking_queue;
 
