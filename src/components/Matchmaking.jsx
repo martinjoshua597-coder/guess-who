@@ -15,6 +15,7 @@ const Matchmaking = ({ onMatchFound, currentUserId }) => {
     const timerRef = useRef(null);
     const queueRowIdRef = useRef(null);
     const channelRef = useRef(null);
+    const pollIntervalRef = useRef(null);
 
     useEffect(() => {
         // Tick up wait time counter
@@ -40,45 +41,14 @@ const Matchmaking = ({ onMatchFound, currentUserId }) => {
     }, []);
 
     const startRealMatchmaking = async () => {
-        // 0. Clean up any stale rows from this exact user
+        // 0. Clean up any stale rows from this exact user (prevent ghost rows)
         await supabase.from('matchmaking_queue').delete().eq('user_id', currentUserId);
 
-        // 1. Try to find someone already waiting
-        // We order by created_at descending so we pick the FRESHEST player,
-        // reducing the chance of grabbing a "ghost" row from a closed tab.
-        const { data: waitingPlayers, error: fetchError } = await supabase
-            .from('matchmaking_queue')
-            .select('*')
-            .eq('status', 'waiting')
-            .neq('user_id', currentUserId)
-            .order('created_at', { ascending: false })
-            .limit(1);
+        // 1. Try to find someone already waiting (optimistic, fast path)
+        const matched = await tryClaimWaitingPlayer();
+        if (matched) return;
 
-        if (fetchError) {
-            console.error('Queue fetch error:', fetchError.message);
-            // Fall back to simulated shared match if table doesn't exist
-            setTimeout(() => onMatchFound('room-dev-fallback'), 2500);
-            return;
-        }
-
-        if (waitingPlayers && waitingPlayers.length > 0) {
-            // Found a match! Let's claim them.
-            const match = waitingPlayers[0];
-            const roomId = [currentUserId, match.user_id].sort().join('-');
-
-            const { error: updateError } = await supabase
-                .from('matchmaking_queue')
-                .update({ status: 'matched', room_id: roomId })
-                .eq('id', match.id);
-
-            // If we successfully updated their row, we are matched
-            if (!updateError) {
-                onMatchFound(roomId);
-                return;
-            }
-        }
-
-        // 2. No match found, insert ourselves into the queue
+        // 2. No match yet — insert ourselves into the queue
         const { data: myRow, error: insertError } = await supabase
             .from('matchmaking_queue')
             .insert({ user_id: currentUserId, status: 'waiting' })
@@ -92,30 +62,82 @@ const Matchmaking = ({ onMatchFound, currentUserId }) => {
         }
 
         queueRowIdRef.current = myRow.id;
+        console.log('Inserted into queue, waiting for opponent. Row id:', myRow.id);
 
-        // 3. Subscribe to our own row to wait for someone to claim us
+        // 3. Subscribe to our own row — in case someone claims us
         const channel = supabase
             .channel(`queue-${myRow.id}`)
             .on('postgres_changes', {
                 event: 'UPDATE',
                 schema: 'public',
                 table: 'matchmaking_queue',
-                filter: `id=eq.${myRow.id}`, // only listen to our row
+                filter: `id=eq.${myRow.id}`,
             }, ({ new: row }) => {
+                console.log('Queue row updated:', row);
                 if (row.room_id) {
+                    stopPolling();
                     onMatchFound(row.room_id);
                 }
             })
             .subscribe((status) => {
-                if (status === 'SUBSCRIBED') {
-                    console.log('Successfully subscribed to queue updates for id:', myRow.id);
-                }
+                console.log('Queue subscription status:', status);
             });
 
         channelRef.current = channel;
+
+        // 4. ALSO poll every 2 seconds in case we both inserted at the same time
+        //    (neither would trigger an UPDATE on each other without this)
+        pollIntervalRef.current = setInterval(async () => {
+            const claimed = await tryClaimWaitingPlayer();
+            if (claimed) {
+                stopPolling();
+            }
+        }, 2000);
+    };
+
+    const tryClaimWaitingPlayer = async () => {
+        const { data: waitingPlayers, error: fetchError } = await supabase
+            .from('matchmaking_queue')
+            .select('*')
+            .eq('status', 'waiting')
+            .neq('user_id', currentUserId)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (fetchError) {
+            console.error('Queue fetch error:', fetchError.message);
+            return false;
+        }
+
+        if (waitingPlayers && waitingPlayers.length > 0) {
+            const match = waitingPlayers[0];
+            const roomId = [currentUserId, match.user_id].sort().join('-');
+            console.log('Found waiting player, claiming room:', roomId);
+
+            const { error: updateError } = await supabase
+                .from('matchmaking_queue')
+                .update({ status: 'matched', room_id: roomId })
+                .eq('id', match.id)
+                .eq('status', 'waiting'); // Only update if still waiting (prevents double-claim)
+
+            if (!updateError) {
+                onMatchFound(roomId);
+                return true;
+            }
+            // If updateError — someone else claimed them simultaneously, try again next poll
+        }
+        return false;
+    };
+
+    const stopPolling = () => {
+        if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+        }
     };
 
     const cleanup = async () => {
+        stopPolling();
         if (channelRef.current) supabase.removeChannel(channelRef.current);
         // Remove from queue on cancel
         if (queueRowIdRef.current) {
