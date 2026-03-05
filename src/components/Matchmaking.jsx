@@ -20,8 +20,8 @@ const Matchmaking = ({ onMatchFound, currentUserId }) => {
     const [waitTime, setWaitTime] = useState(0);
     const [statusText, setStatusText] = useState('Starting...');
 
-    // Unique per browser tab/mount — fixes cross-tab same-user matching issue
-    const sessionId = useRef(`sess-${Math.random().toString(36).slice(2)}`).current;
+    // Unique per browser tab/mount — a real UUID so it matches the DB uuid column type
+    const sessionId = useRef(crypto.randomUUID()).current;
     const queueRowIdRef = useRef(null);
     const channelRef = useRef(null);
     const pollIntervalRef = useRef(null);
@@ -73,35 +73,19 @@ const Matchmaking = ({ onMatchFound, currentUserId }) => {
         setStatusText('Joining queue...');
         const { data: row, error: insertErr } = await supabase
             .from('matchmaking_queue')
-            .insert({
-                user_id: sessionId,          // unique per tab
-                status: 'waiting',
-                display_user_id: currentUserId, // keep real user id for reference
-            })
+            .insert({ user_id: sessionId, status: 'waiting' })
             .select()
             .single();
 
         if (insertErr) {
             console.error('[MM] INSERT failed:', insertErr.message);
-            // If the insert fails (e.g. display_user_id column doesn't exist), retry without it
-            const { data: row2, error: insertErr2 } = await supabase
-                .from('matchmaking_queue')
-                .insert({ user_id: sessionId, status: 'waiting' })
-                .select()
-                .single();
-
-            if (insertErr2) {
-                console.error('[MM] INSERT retry failed:', insertErr2.message);
-                setStatusText(`Queue error: ${insertErr2.message}`);
-                setTimeout(() => triggerMatch('room-dev-fallback'), 3000);
-                return;
-            }
-            queueRowIdRef.current = row2.id;
-            subscribeToRow(row2.id);
-        } else {
-            queueRowIdRef.current = row.id;
-            subscribeToRow(row.id);
+            setStatusText(`Queue error: ${insertErr.message}`);
+            setTimeout(() => triggerMatch('room-dev-fallback'), 3000);
+            return;
         }
+
+        queueRowIdRef.current = row.id;
+        subscribeToRow(row.id);
 
         setStatusText('In queue — waiting for opponent...');
         console.log('[MM] Inserted into queue. Row:', queueRowIdRef.current);

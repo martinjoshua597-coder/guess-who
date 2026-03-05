@@ -61,6 +61,7 @@ function AppInner() {
   };
 
   const handleMatchFound = (matchedRoomId) => {
+    setFriendUsername('Opponent'); // Default name for random match opponent
     setRoomId(matchedRoomId);
     setAppState('gameplay');
   };
