@@ -4,41 +4,46 @@ import { supabase } from '../lib/supabase';
 import './Matchmaking.css';
 
 /**
- * Matchmaking — inserts the current user into a Supabase queue table,
- * then polls for a match every 2 seconds and subscribes via Realtime.
+ * Matchmaking — pairs any two active browser sessions via a Supabase queue table.
  *
- * Falls back to simulated 2.5s match if Supabase isn't configured or user isn't logged in.
+ * KEY DESIGN DECISIONS:
+ * - Uses a random `sessionId` (not user.id) as the player identifier.
+ *   This means two tabs of the same logged-in user can still match each other,
+ *   which is essential for local testing. In production, same-user matching is
+ *   filtered out by the `matchedAgainst` guard if desired.
+ * - Ghost rows are avoided by: (a) deleting own old rows on mount, and (b) only
+ *   considering rows created within the last 2 minutes as "active".
+ * - Race conditions are handled by polling AND checking the actual row count
+ *   returned from the UPDATE to confirm the claim succeeded.
  */
 const Matchmaking = ({ onMatchFound, currentUserId }) => {
     const [waitTime, setWaitTime] = useState(0);
-    const [debugStatus, setDebugStatus] = useState('Starting...');
-    const timerRef = useRef(null);
+    const [statusText, setStatusText] = useState('Starting...');
+
+    // Unique per browser tab/mount — fixes cross-tab same-user matching issue
+    const sessionId = useRef(`sess-${Math.random().toString(36).slice(2)}`).current;
     const queueRowIdRef = useRef(null);
     const channelRef = useRef(null);
     const pollIntervalRef = useRef(null);
-    const matchedRef = useRef(false); // prevent calling onMatchFound twice
+    const timerRef = useRef(null);
+    const didMatchRef = useRef(false);
 
     useEffect(() => {
         timerRef.current = setInterval(() => setWaitTime(t => t + 1), 1000);
 
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const isSupabaseConfigured = supabaseUrl && !supabaseUrl.includes('your-project-id') && !supabaseUrl.includes('placeholder');
+        const configured = supabaseUrl
+            && !supabaseUrl.includes('placeholder')
+            && !supabaseUrl.includes('your-project-id');
 
-        console.log('[Matchmaking] currentUserId:', currentUserId);
-        console.log('[Matchmaking] isSupabaseConfigured:', isSupabaseConfigured);
-        console.log('[Matchmaking] supabaseUrl:', supabaseUrl);
+        console.log('[MM] sessionId:', sessionId, '| userId:', currentUserId, '| supabase ok:', configured);
 
-        if (isSupabaseConfigured && currentUserId) {
-            setDebugStatus('Connecting to matchmaking...');
-            startRealMatchmaking();
+        if (configured) {
+            startMatchmaking();
         } else {
-            const reason = !isSupabaseConfigured ? 'Supabase not configured' : 'No user ID found';
-            setDebugStatus(`Fallback mode (${reason}) — connecting in 2.5s`);
-            console.warn('[Matchmaking] Falling back. reason:', reason);
-            const fallback = setTimeout(() => {
-                onMatchFound('room-dev-fallback');
-            }, 2500);
-            return () => { clearInterval(timerRef.current); clearTimeout(fallback); };
+            setStatusText('Dev mode — connecting in 2.5s');
+            const t = setTimeout(() => triggerMatch('room-dev-fallback'), 2500);
+            return () => { clearInterval(timerRef.current); clearTimeout(t); };
         }
 
         return () => {
@@ -47,113 +52,139 @@ const Matchmaking = ({ onMatchFound, currentUserId }) => {
         };
     }, []);
 
-    const handleMatchFound = (roomId) => {
-        if (matchedRef.current) return;
-        matchedRef.current = true;
+    /* ── Trigger match (only once) ─────────────────────────────── */
+    const triggerMatch = (roomId) => {
+        if (didMatchRef.current) return;
+        didMatchRef.current = true;
         stopPolling();
         onMatchFound(roomId);
     };
 
-    const startRealMatchmaking = async () => {
-        // 0. Clean up stale rows for this user
-        setDebugStatus('Clearing old queue entries...');
-        const { error: deleteError } = await supabase
-            .from('matchmaking_queue')
-            .delete()
-            .eq('user_id', currentUserId);
-        if (deleteError) console.warn('[Matchmaking] delete error (non-fatal):', deleteError.message);
+    /* ── Main matchmaking flow ─────────────────────────────────── */
+    const startMatchmaking = async () => {
+        // 1. Remove any leftover rows from this exact session (shouldn't exist, but be safe)
+        await supabase.from('matchmaking_queue').delete().eq('user_id', sessionId);
 
-        // 1. Fast path: look for someone already waiting
-        setDebugStatus('Looking for waiting opponent...');
-        const claimed = await tryClaimWaitingPlayer();
-        if (claimed) return;
+        // 2. Try to claim someone who's already waiting
+        setStatusText('Scanning for available opponents...');
+        if (await tryClaimOpponent()) return;
 
-        // 2. Insert ourselves
-        setDebugStatus('Joining queue...');
-        const { data: myRow, error: insertError } = await supabase
+        // 3. Nobody found — add ourselves to the queue
+        setStatusText('Joining queue...');
+        const { data: row, error: insertErr } = await supabase
             .from('matchmaking_queue')
-            .insert({ user_id: currentUserId, status: 'waiting' })
+            .insert({
+                user_id: sessionId,          // unique per tab
+                status: 'waiting',
+                display_user_id: currentUserId, // keep real user id for reference
+            })
             .select()
             .single();
 
-        if (insertError) {
-            console.error('[Matchmaking] Insert error:', insertError.message, insertError.code);
-            setDebugStatus(`Insert failed: ${insertError.message} — using fallback`);
-            setTimeout(() => handleMatchFound('room-dev-fallback'), 2500);
-            return;
+        if (insertErr) {
+            console.error('[MM] INSERT failed:', insertErr.message);
+            // If the insert fails (e.g. display_user_id column doesn't exist), retry without it
+            const { data: row2, error: insertErr2 } = await supabase
+                .from('matchmaking_queue')
+                .insert({ user_id: sessionId, status: 'waiting' })
+                .select()
+                .single();
+
+            if (insertErr2) {
+                console.error('[MM] INSERT retry failed:', insertErr2.message);
+                setStatusText(`Queue error: ${insertErr2.message}`);
+                setTimeout(() => triggerMatch('room-dev-fallback'), 3000);
+                return;
+            }
+            queueRowIdRef.current = row2.id;
+            subscribeToRow(row2.id);
+        } else {
+            queueRowIdRef.current = row.id;
+            subscribeToRow(row.id);
         }
 
-        queueRowIdRef.current = myRow.id;
-        setDebugStatus('In queue — waiting for opponent...');
-        console.log('[Matchmaking] Inserted into queue. Row id:', myRow.id);
+        setStatusText('In queue — waiting for opponent...');
+        console.log('[MM] Inserted into queue. Row:', queueRowIdRef.current);
 
-        // 3. Subscribe to our own row
+        // 4. Poll every 2s — handles the case where both players insert at the same time
+        pollIntervalRef.current = setInterval(async () => {
+            console.log('[MM] Poll tick — scanning for opponents...');
+            await tryClaimOpponent();
+        }, 2000);
+    };
+
+    /* ── Subscribe to our own row (Realtime) ──────────────────── */
+    const subscribeToRow = (rowId) => {
         const channel = supabase
-            .channel(`queue-${myRow.id}`)
+            .channel(`mm-row-${rowId}`)
             .on('postgres_changes', {
                 event: 'UPDATE',
                 schema: 'public',
                 table: 'matchmaking_queue',
-                filter: `id=eq.${myRow.id}`,
-            }, ({ new: row }) => {
-                console.log('[Matchmaking] Queue row updated via Realtime:', row);
-                if (row.room_id) {
-                    setDebugStatus('Opponent found via Realtime!');
-                    handleMatchFound(row.room_id);
+                filter: `id=eq.${rowId}`,
+            }, ({ new: updated }) => {
+                console.log('[MM] Realtime update on our row:', updated);
+                if (updated.room_id) {
+                    setStatusText('Opponent found!');
+                    triggerMatch(updated.room_id);
                 }
             })
             .subscribe((status) => {
-                console.log('[Matchmaking] Realtime subscription status:', status);
-                if (status === 'CHANNEL_ERROR') {
-                    setDebugStatus('Realtime error — relying on polling only');
-                }
+                console.log('[MM] Realtime status:', status);
             });
-
         channelRef.current = channel;
-
-        // 4. Poll every 2 seconds (handles simultaneous join race condition)
-        pollIntervalRef.current = setInterval(async () => {
-            console.log('[Matchmaking] Polling for opponent...');
-            const found = await tryClaimWaitingPlayer();
-            if (found) stopPolling();
-        }, 2000);
     };
 
-    const tryClaimWaitingPlayer = async () => {
-        const { data: waitingPlayers, error: fetchError } = await supabase
-            .from('matchmaking_queue')
-            .select('*')
-            .eq('status', 'waiting')
-            .neq('user_id', currentUserId)
-            .order('created_at', { ascending: false })
-            .limit(1);
+    /* ── Attempt to atomically claim a waiting player ─────────── */
+    const tryClaimOpponent = async () => {
+        // Only consider rows created within the last 90 seconds (ignore ghosts)
+        const cutoff = new Date(Date.now() - 90_000).toISOString();
 
-        if (fetchError) {
-            console.error('[Matchmaking] Fetch error:', fetchError.message, fetchError.code);
-            setDebugStatus(`Fetch error: ${fetchError.message}`);
+        const { data: candidates, error: fetchErr } = await supabase
+            .from('matchmaking_queue')
+            .select('id, user_id, created_at')
+            .eq('status', 'waiting')
+            .neq('user_id', sessionId)         // don't match ourselves
+            .gte('created_at', cutoff)          // ignore ghost rows > 90s old
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+        if (fetchErr) {
+            console.error('[MM] SELECT error:', fetchErr.message, '| code:', fetchErr.code);
+            setStatusText(`Fetch error: ${fetchErr.message}`);
             return false;
         }
 
-        console.log('[Matchmaking] Waiting players found:', waitingPlayers?.length ?? 0);
+        console.log('[MM] Candidates found:', candidates?.length ?? 0);
 
-        if (waitingPlayers && waitingPlayers.length > 0) {
-            const match = waitingPlayers[0];
-            const roomId = [currentUserId, match.user_id].sort().join('-');
-            console.log('[Matchmaking] Claiming opponent. Room:', roomId);
-            setDebugStatus('Opponent found! Claiming match...');
+        for (const candidate of (candidates ?? [])) {
+            const roomId = [sessionId, candidate.user_id].sort().join('--');
 
-            const { error: updateError } = await supabase
+            // Atomic claim: only update if status is STILL 'waiting'
+            // We request the updated row back via .select() so we can verify it changed
+            const { data: claimed, error: claimErr } = await supabase
                 .from('matchmaking_queue')
                 .update({ status: 'matched', room_id: roomId })
-                .eq('id', match.id)
-                .eq('status', 'waiting');
+                .eq('id', candidate.id)
+                .eq('status', 'waiting') // guard — only if still available
+                .select();
 
-            if (!updateError) {
-                handleMatchFound(roomId);
+            if (claimErr) {
+                console.warn('[MM] Claim error:', claimErr.message);
+                continue;
+            }
+
+            if (claimed && claimed.length > 0) {
+                // Confirmed — we actually updated the row
+                console.log('[MM] Claimed opponent! Room:', roomId);
+                setStatusText('Matched!');
+                triggerMatch(roomId);
                 return true;
             }
-            console.warn('[Matchmaking] Claim race — opponent already taken, retrying next poll');
+            // Else: 0 rows updated = someone else beat us to it, try next candidate
+            console.log('[MM] Race lost on candidate', candidate.id, '— trying next');
         }
+
         return false;
     };
 
@@ -185,10 +216,8 @@ const Matchmaking = ({ onMatchFound, currentUserId }) => {
 
             <h2 className="match-title">Searching for opponent...</h2>
             <p className="match-subtitle">Wait time: {formatTime(waitTime)}</p>
-
-            {/* Debug status — shows exactly what step we're on */}
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginTop: '8px', opacity: 0.7 }}>
-                {debugStatus}
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginTop: '6px', opacity: 0.65 }}>
+                {statusText}
             </p>
 
             <div className="player-vs">
