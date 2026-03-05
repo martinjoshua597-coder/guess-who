@@ -57,6 +57,13 @@ export const GameProvider = ({ children, roomId, currentUserId }) => {
             setRevealedFaceId(payload.faceId);
         });
 
+        // Listen for card image uploads from opponent (base64 compressed, no storage)
+        channel.on('broadcast', { event: 'card_image' }, ({ payload }) => {
+            setFaces(prev => (prev || []).map(f =>
+                f.id === payload.faceId ? { ...f, image: payload.dataUrl } : f
+            ));
+        });
+
         // Listen for presence (opponent online status)
         channel.on('presence', { event: 'join' }, ({ newPresences }) => {
             const others = newPresences.filter(p => p.userId !== currentUserId);
@@ -123,6 +130,16 @@ export const GameProvider = ({ children, roomId, currentUserId }) => {
         });
     }, []);
 
+    // Send any structured game data to opponent over Realtime
+    // Used for card images (base64 compressed) — keeps WebRTC peer clean for video only
+    const sendP2PData = useCallback((msg) => {
+        channelRef.current?.send({
+            type: 'broadcast',
+            event: msg.type,
+            payload: msg,
+        });
+    }, []);
+
     return (
         <GameContext.Provider value={{
             faces, setFaces,
@@ -137,6 +154,7 @@ export const GameProvider = ({ children, roomId, currentUserId }) => {
             broadcastGuessUpdate,
             broadcastHlSecret,
             broadcastReveal,
+            sendP2PData,
         }}>
             {children}
         </GameContext.Provider>

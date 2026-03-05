@@ -62,42 +62,47 @@ const MysteryFaceBoard = () => {
         }
     };
 
-    // Per-card image upload — attempts Supabase Storage, falls back to local object URL
+    // Compress an image file to a data URL using Canvas
+    const compressImage = (file, maxPx = 400, quality = 0.7) =>
+        new Promise((resolve) => {
+            const img = new Image();
+            const objectUrl = URL.createObjectURL(file);
+            img.onload = () => {
+                const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(img.width * scale);
+                canvas.height = Math.round(img.height * scale);
+                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                URL.revokeObjectURL(objectUrl);
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+            img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(null); };
+            img.src = objectUrl;
+        });
+
+    // Per-card image upload — compresses client-side and sends P2P (no storage used)
     const handleCardImageUpload = useCallback(async (faceId, e) => {
         const file = e.target.files?.[0];
         if (!file) return;
         e.target.value = '';
 
         setUploadingId(faceId);
-
         try {
-            // Try Supabase Storage first (requires 'card-images' bucket to exist)
-            const fileName = `${Date.now()}-${faceId}-${file.name.replace(/\s/g, '_')}`;
-            const { data, error } = await supabase.storage
-                .from('card-images')
-                .upload(fileName, file, { upsert: true });
+            const dataUrl = await compressImage(file);
+            if (!dataUrl) return;
 
-            let imageUrl;
-            if (!error && data) {
-                const { data: publicData } = supabase.storage
-                    .from('card-images')
-                    .getPublicUrl(data.path);
-                imageUrl = publicData.publicUrl;
-            } else {
-                // Fallback: local object URL (won't sync to opponent)
-                imageUrl = URL.createObjectURL(file);
-                console.warn('Supabase Storage not configured — using local URL (opponent won\'t see this)');
-            }
-
-            setFaces(prev => prev.map(f =>
-                f.id === faceId
-                    ? { ...f, image: imageUrl, name: file.name.split('.')[0] }
-                    : f
+            // Update own board instantly
+            setFaces(prev => (prev || []).map(f =>
+                f.id === faceId ? { ...f, image: dataUrl, name: file.name.split('.')[0] } : f
             ));
+
+            // Send compressed image directly to opponent via WebRTC data channel
+            game?.sendP2PData({ type: 'card_image', faceId, dataUrl });
         } finally {
             setUploadingId(null);
         }
-    }, [faces]);
+    }, [game]);
+
 
     const handleUploadIconClick = (e, faceId) => {
         e.stopPropagation();

@@ -19,7 +19,8 @@ function AppInner() {
   const [activeGame, setActiveGame] = useState('mystery-face');
   const [currentUser, setCurrentUser] = useState('');
   const [friendUsername, setFriendUsername] = useState('');
-  const [roomId, setRoomId] = useState(null); // Shared room ID for Realtime + WebRTC
+  const [roomId, setRoomId] = useState(null);
+  const [isRandomMatch, setIsRandomMatch] = useState(false);
 
   useEffect(() => {
     if (user && !currentUser) {
@@ -54,14 +55,15 @@ function AppInner() {
 
   const handleFriendConnect = (username) => {
     setFriendUsername(username);
-    // Generate a deterministic room ID from the two sorted usernames
+    setIsRandomMatch(false);
     const id = [currentUser, username].sort().join('-');
     setRoomId(id);
     setAppState('gameplay');
   };
 
   const handleMatchFound = (matchedRoomId) => {
-    setFriendUsername('Opponent'); // Default name for random match opponent
+    setFriendUsername('Opponent');
+    setIsRandomMatch(true);
     setRoomId(matchedRoomId);
     setAppState('gameplay');
   };
@@ -100,11 +102,15 @@ function AppInner() {
 
         {appState === 'gameplay' && (
           <GameProvider roomId={roomId} currentUserId={user.id}>
-            <VideoSection currentUserName={currentUser} opponentName={friendUsername} roomId={roomId} />
+            <VideoSection
+              currentUserName={currentUser}
+              opponentName={friendUsername}
+              roomId={roomId}
+            />
             <GameSection
               activeGame={activeGame}
               setActiveGame={setActiveGame}
-              onNewMatch={!friendUsername ? () => { setRoomId(null); setAppState('matchmaking'); } : null}
+              onNewMatch={isRandomMatch ? () => { setIsRandomMatch(false); setRoomId(null); setAppState('matchmaking'); } : null}
             />
           </GameProvider>
         )}
